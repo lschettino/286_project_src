@@ -8,7 +8,6 @@ import math
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Point, Quaternion
 import argparse
-import numpy as np
 
 msg = """
 control your Turtlebot3!
@@ -23,13 +22,12 @@ If you want to close, insert 's'
 PI = 3.14
 
 class RobotSLAM_Nav:
-    def __init__(self, goal_topic, position_topic,bot,beacon):
+    def __init__(self, goal_topic, position_topic,bot):
         rospy.init_node("move_base_tester")
         self.client = actionlib.SimpleActionClient(goal_topic,MoveBaseAction)
         self.timeout = 60 #secs
         self.step_size = 1.0
-        self.beacon = beacon # only taking 1 beacon 
-
+        
         if(bot == 1):
             #Clear the costmap and rtabmap using rosservice calls.
             rospy.wait_for_service('/locobot/rtabmap/reset')
@@ -58,19 +56,19 @@ class RobotSLAM_Nav:
         self.goal.target_pose.header.frame_id = "map"
 
         rospy.Subscriber(position_topic, Odometry, self.odom_cb)
-        #rospy.Subscriber('aoa_topic', Float32, self.aoa_cb_dummy)
+        rospy.Subscriber('aoa_topic', Float32, self.aoa_cb_dummy)
         self.gotAOA = False
         self.current_position = Point()
         self.current_ori = Quaternion()
+	print("initial current ori", self.current_ori)
 
     def aoa_cb_dummy(self, msg):
         self.move_direction = msg.data 
         self.gotAOA = True
         print("Got new AOA")
 
-    
-
     def move(self):
+
         while True:
             print(msg)
             
@@ -107,42 +105,33 @@ class RobotSLAM_Nav:
     def odom_cb(self,msg):
 	#Update this callback function to get the positions of the robot from its odometery.
 	#Use the variables self.current_position and self.current_ori to store the position and orientation values.
+	#print("odom call back ")
 	self.current_position.x = msg.pose.pose.position.x
 	self.current_position.y = msg.pose.pose.position.y 
         rot = Quaternion(msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w) 
 	self.current_ori = rot 
-    
-    def get_AOA(self):
-	angle = self.beacon.simulate_AOA(self.current_position.x, self.current_position.y, self.current_ori, noise=False)  
-	print("simulated angle", angle) 
-	self.gotAOA = True 
-	self.move_direction = angle 
+		
 	
 
     def move_along_direction(self):
         rospy.loginfo("Waiting for AOA...")
- 	distance = np.sqrt((self.beacon.x - self.current_position.x) ** 2 + (self.beacon.y - self.current_position.y) ** 2)
-	while distance > 0.5: 
-	    print("distance greater than 0.5, entered while")
-	    
-	    self.get_AOA() 
+        while not rospy.is_shutdown():    
             if(self.gotAOA):
-                print("pos: ", self.current_position.x, self.current_position.y) 
 		angle = self.move_direction / 180 * math.pi # (to convert to radians) 
 		delta_x = self.step_size * math.cos(angle) 
 		delta_y = self.step_size * math.sin(angle) 
 		# Add your code here to update x and y based on the AOA direction and step-size
-
-
 		x = self.current_position.x + delta_x 
                 y = self.current_position.y + delta_y
 		# use AOA to get angle 
 		# math.cosine(theta) * self.step_size 		
                 print("Moving to next location x = ",x, ", y =",y)
+		print("current position: ", self.current_position.x, self.current_position.y)
                 
                 self.goal.target_pose.header.stamp = rospy.Time.now()
                 self.goal.target_pose.pose.position.x = x
-
+                self.goal.target_pose.pose.position.y = y
+		print("current ori ", self.current_ori)
                 self.goal.target_pose.pose.orientation.x = self.current_ori.x
                 self.goal.target_pose.pose.orientation.y = self.current_ori.y
                 self.goal.target_pose.pose.orientation.z = self.current_ori.z
@@ -160,83 +149,14 @@ class RobotSLAM_Nav:
                     rospy.loginfo("Reached goal successfully")
 
                 self.gotAOA = False
-	print("distance smaller!", distance)
-
-
-def _cartesian_to_polar(x,y):
-	r = math.sqrt(x*x+y*y)
-
-	cos_theta = x/r
-	
-	
-	# compute angle in radians
-	angle = math.acos(cos_theta) * (180/PI)
-	if y < 0:
-	    angle *= -1
-	
-	# return angle is from 180 to -180
-	return angle
-
-
-	
-	
-class WifiBeacon:
-    def __init__(self, name, x, y):
-	"""
-	x and y are relative to the robots initial position (0,0)
-	"""
-	self.name = name
-	self.x = x
-	self.y = y
-	
-
-	# angle (polar coordinate angle) with respect to robot's (0,0,00) heading (x_pos, y_pos, orientation)
-	# x = r * cos(theta), y = r * sin(theta)
-	# r = sqrt(x^2+y^2) 
-	# so theta = arctan(y/x) but arctan doesn't work for for negative coordinates
-	
-	
-	# Needs correction
-	self.angle_to_origin = _cartesian_to_polar(self.x,self.y)
-
-
-    def simulate_AOA(self, robot_x, robot_y, robot_orientation, noise=False):
-	'''
-	Method to return
-
-	'''
-	delta_x = self.x - robot_x
-	delta_y = self.y - robot_y
-	
-	angle = _cartesian_to_polar(delta_x,delta_y)
-	
-	if noise:
-	    angle += np.random.normal(0,2)
-	
-	return angle
-	
-
-	
-def simulation_0():
-    beacon_1 = WifiBeacon('beacon1', 3.0, -2.0)
-    obj = RobotSLAM_Nav('/move_base', '/odom', 2, beacon_1)
-    
-   
-    obj.move_along_direction() 
-
-    print("robot found beacon")
-    return 0 
-
-
 
 if __name__=='__main__':
-   # parser = argparse.ArgumentParser(description='Get the inputs.')
-   # parser.add_argument('--goal_topic', type=str)
-   # parser.add_argument('--position_topic', type=str)
-   # parser.add_argument('--bot', type=int)
-   # args = parser.parse_args()
-   # obj = RobotSLAM_Nav(args.goal_topic, args.position_topic, args.bot)
-   simulation_0()
+    parser = argparse.ArgumentParser(description='Get the inputs.')
+    parser.add_argument('--goal_topic', type=str)
+    parser.add_argument('--position_topic', type=str)
+    parser.add_argument('--bot', type=int)
+    args = parser.parse_args()
+    obj = RobotSLAM_Nav(args.goal_topic, args.position_topic, args.bot)
     
     #obj.move()
-    #obj.move_along_direction()
+    obj.move_along_direction()
