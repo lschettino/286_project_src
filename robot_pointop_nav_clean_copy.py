@@ -110,6 +110,7 @@ class RobotSLAM_Nav:
 	self.current_position.y = msg.pose.pose.position.y 
         rot = Quaternion(msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w) 
 	self.current_ori = rot 
+	##print("ODOMETER CALLBACK")
 		
 	
 
